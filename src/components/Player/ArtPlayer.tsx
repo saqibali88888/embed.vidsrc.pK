@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Artplayer from "artplayer";
 import { type Option } from "artplayer/types/option";
 import artplayerPluginHlsQuality from "artplayer-plugin-hls-quality";
@@ -26,6 +26,8 @@ interface SandboxDetails {
   securityLevel?: number;
 }
 
+
+
 // Add type declaration for sandbox detection
 declare global {
   interface Document {
@@ -46,18 +48,6 @@ declare global {
   }
 }
 
-interface PlayerProps {
-  option: Option;
-  getInstance?: (art: Artplayer) => void;
-  artRef: React.RefObject<HTMLDivElement>;
-  sub?: any[];
-  posterUrl?: string;
-  availableLang?: string[];
-  onLanguageChange?: (lang: string) => void;
-  [key: string]: any;
-  currentLang?: string;
-}
-
 export default function Player({
   option,
   getInstance,
@@ -65,20 +55,24 @@ export default function Player({
   sub,
   posterUrl, // Add this prop
   availableLang = [], // Add this prop with default empty array
+  currentLang, // New prop for current language
   onLanguageChange, // Add this prop
-  currentLang = '', // Add this prop
   ...rest
 }: {
   option: Option;
   getInstance?: (art: Artplayer) => void;
-  artRef: React.RefObject<HTMLDivElement>;
+  artRef: any;
   sub?: any;
   posterUrl?: string; // Add this prop
   availableLang?: string[]; // Add this to the type
+  currentLang?: string; // Add currentLang to props
   onLanguageChange?: (lang: string) => void; // Add this to the type
   [key: string]: any;
-  currentLang?: string;
 }) {
+
+  const artInstanceRef = useRef<Artplayer | null>(null);
+
+
   useEffect(() => {
 
     const style = document.createElement("style");
@@ -411,9 +405,9 @@ export default function Player({
                     .map(
                       (lang: string) => `
                     <div class="lang-option" data-value="${lang}" style="
-                    color: ${lang === availableLang[0] ? "#fcba03" : "white"};
+                    color: ${lang === (currentLang || availableLang[0]) ? "#fcba03" : "white"};
                     background-color: ${
-                      lang === availableLang[0] ? "#49484a" : "transparent"
+                      lang === (currentLang || availableLang[0]) ? "#49484a" : "transparent"
                     };
                       padding: 8px 12px;
                       cursor: pointer;
@@ -530,8 +524,7 @@ export default function Player({
                   }
                 });
                 optionElement.addEventListener("mouseleave", () => {
-                  const currentLangText =
-                    selector.querySelector(".current-lang span")?.textContent;
+                  const currentLangText = currentLang || availableLang[0];
                   const isCurrentLang =
                     optionElement.getAttribute("data-value") ===
                     currentLangText;
@@ -652,6 +645,9 @@ export default function Player({
         },
       },
     });
+    
+    artInstanceRef.current = art;
+
     art.on("ready", () => {
       art.play();
       art.forward = 10;
