@@ -1,5 +1,10 @@
-import { AppDispatch, RootState } from "../redux/store";
-import { useDispatch, useSelector, TypedUseSelectorHook } from "react-redux";
-
-export const useAppDispatch: () => AppDispatch = useDispatch;
-export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector;
+// lib/utils.ts
+export function createQueryString(
+  params: URLSearchParams,
+  name: string,
+  value: string
+) {
+  const newParams = new URLSearchParams(params.toString());
+  newParams.set(name, value);
+  return newParams.toString();
+}
