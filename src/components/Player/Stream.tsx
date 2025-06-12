@@ -8,6 +8,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { consumetPlay } from "@/lib/consumetApi";
 import { toast } from "react-toastify";
 import ErrorMessage from "../ErrorMessage";
+import { createQueryString } from "@/lib/utils"; // Utility function for URL params
 
 
 interface PosterData {
@@ -22,7 +23,8 @@ const Stream = ({
 }) => {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const urlLang = searchParams.get('lang');
+  // Get language from URL
+const langParam = searchParams.get("lang");
   //const season = searchParams.get("season");
   //const episode = searchParams.get("episode");
   const dispatch = useAppDispatch();
@@ -31,8 +33,8 @@ const Stream = ({
   const [error, setError] = useState(false);
   const ref = React.useRef<any>();
   const [art, setArt] = useState<any>();
-  const [availableLang, setAvailableLang] = useState<string[]>([]);
-  const [currentLang, setCurrentLang] = useState<string>(urlLang || '');
+  const [availableLang, setAvailableLang] = useState<any>([""]);
+  const [currentLang, setCurrentLang] = useState<string>(langParam || "");
   const [sub, setSub] = useState<any>([]);
 
   let season: string | null = null;
@@ -47,32 +49,30 @@ const Stream = ({
 
   const provider = useAppSelector((state) => state.options.api);
 
-  // Handle URL language updates
-  useEffect(() => {
-    const newParams = new URLSearchParams(searchParams.toString());
-    if (currentLang) {
-      newParams.set('lang', currentLang);
-    } else {
-      newParams.delete('lang');
-    }
-    router.replace(`?${newParams.toString()}`, { scroll: false });
-  }, [currentLang]);
+  // Function to update URL when language changes
+const updateLanguage = (lang: string) => {
+    setCurrentLang(lang);
+    
+    // Create mutable copy of searchParams
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("lang", lang);
+    router.replace(`?${params.toString()}`, { scroll: false });
+  };
 
-  // Validate language against available options
-  useEffect(() => {
-    if (availableLang.length > 0 && !availableLang.includes(currentLang)) {
-      setCurrentLang(availableLang[0]);
+// Add this function to throttle requests
+function throttle<T extends (...args: any[]) => any>(func: T, limit: number): (...args: Parameters<T>) => void{
+  let inThrottle = false;
+  return (...args: Parameters<T>) => {
+    if (!inThrottle) {
+      func(...args);
+      inThrottle = true;
+      setTimeout(() => (inThrottle = false), limit);
     }
-  }, [availableLang]);
-  
-  // Add this useEffect to handle initial language setup
-useEffect(() => {
-  if (urlLang && availableLang.includes(urlLang)) {
-    setCurrentLang(urlLang);
-  }
-}, [availableLang, urlLang]);
+  };
+}
+
   useEffect(() => {
-    async function fetchPosterData() {
+    const fetchPosterData = throttle(async() => {
       try {
         // First try to get TMDB ID using IMDB ID
         const findResponse = await fetch(
@@ -104,69 +104,73 @@ useEffect(() => {
       } catch (error) {
         console.error('Error fetching poster data:', error);
       }
-    }
+    }, 1000);
 
     fetchPosterData();
   }, [params.imdb, params.type]);
 
-   useEffect(() => {
+  useEffect(() => {
     async function get8Stream() {
-      try {
-        let data;
-        if (params.type === "movie") {
-          data = await playMovie(params.imdb, currentLang);
-        } else {
-          data = await playEpisode(
-            params.imdb,
-            parseInt(season as string),
-            parseInt(episode as string),
-            currentLang
-          );
-        }
+      if (params.type === "movie") {
+        // Use language from URL if available, otherwise first available language
+        const langToUse = currentLang || (availableLang[0] || "");
+        const data = await playMovie(params.imdb, langToUse);
+        // console.log(data);
+        if (data?.success && data?.data?.link?.length > 0) {
+          art?.switchUrl(data?.data?.link);
+          setUrl(data?.data?.link);
+          setAvailableLang(data?.availableLang);
 
-        if (data?.success && data?.data?.link) {
-          setUrl(data.data.link);
-          setAvailableLang(data.availableLang.filter((lang: string) => lang));
-          art?.switchUrl(data.data.link);
+          // If no language was set, use the first available
+          if (!currentLang && data?.availableLang?.length > 0) {
+            updateLanguage(data.availableLang[0]);
+          }
         } else {
           setError(true);
-          
         }
-      } catch (error) {
-        setError(true);
-       
-      }
-    }
-
-    async function getConsumet() {
-      try {
-        const data = await consumetPlay(
-          params.id,
-          params.type,
+      } else {
+        const langToUse = currentLang || (availableLang[0] || "");
+        const data = await playEpisode(
+          params.imdb,
+          parseInt(season as string),
           parseInt(episode as string),
-          parseInt(season as string)
+          langToUse
         );
-        
-        if (data?.success && data?.data?.sources) {
-          setUrl(data.data.sources.slice(-1)[0]?.url);
-          setSub(data.data.subtitles);
+        // console.log(data);
+        if (data?.success && data?.data?.link?.length > 0) {
+          setUrl(data?.data?.link);
+          setAvailableLang(data?.availableLang);
+          art?.switchUrl(data?.data?.link);
+
+          if (!currentLang && data?.availableLang?.length > 0) {
+            updateLanguage(data.availableLang[0]);
+          }
         } else {
           setError(true);
-        
         }
-      } catch (error) {
-        setError(true);
-        
       }
     }
-
+    async function getConsumet() {
+      const data = await consumetPlay(
+        params.id,
+        params.type,
+        parseInt(episode as string),
+        parseInt(season as string)
+      );
+      console.log(data);
+      if (data?.success && data?.data?.sources?.length > 0) {
+        setUrl(data?.data?.sources[data?.data?.sources.length - 1]?.url);
+        setSub(data?.data?.subtitles);
+      } else {
+        setError(true);
+      }
+    }
     if (provider === "8stream") {
       get8Stream();
     } else {
       getConsumet();
     }
   }, [currentLang]);
-
   const getPosterUrl = () => {
     if (posterData.backdropPath) {
       return `https://image.tmdb.org/t/p/original${posterData.backdropPath}`;
@@ -185,8 +189,8 @@ useEffect(() => {
             sub={sub}
             posterUrl={getPosterUrl()} // Pass poster URL directly to ArtPlayer
             availableLang={availableLang} // Add this prop
-            currentLang={currentLang}
-            onLanguageChange={(lang: string) => setCurrentLang(lang)}
+            onLanguageChange={updateLanguage}
+            currentLang={currentLang} // Pass current language
             style={{ width: "100%", height: "100%", aspectRatio: "16/9" }}
             option={{
               container: "#player-container",
@@ -206,12 +210,20 @@ useEffect(() => {
                   style: {
                     display: "none"
                   },
-                  selector: availableLang.map((lang: string, index: number) => ({
-                    default: lang === currentLang || (index === 0 && !currentLang),
-                    html: lang,
-                    value: lang,
-                  })),
-                  onSelect: (selector: any) => setCurrentLang(selector.value),
+                  selector: [
+                    ...availableLang.map((item: any, i: number) => {
+                      return {
+                        default: i === 0,
+                        html: ``,
+                        value: item,
+                      };
+                    }),
+                  ],
+                  onSelect: function (item, $dom) {
+                    // @ts-ignore
+                    updateLanguage(item.value); // Update URL when changed
+                    return item.html; 
+                  },
                 }, 
               ],
               playbackRate: true,
